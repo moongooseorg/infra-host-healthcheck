@@ -1,0 +1,5 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/infra-host-healthcheck.csproj" />
+  </Folder>
+</Solution>
