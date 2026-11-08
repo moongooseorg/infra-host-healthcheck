@@ -10,21 +10,27 @@ public class HealthCheckService : BackgroundService
     private readonly DiscordClient _discord;
     private readonly AppSettings _settings;
     private readonly ILogger<HealthCheckService> _logger;
+    private readonly IHostApplicationLifetime _lifetime;
 
     public HealthCheckService(
         HttpClient httpClient,
         DiscordClient discord,
         IOptions<AppSettings> settings,
-        ILogger<HealthCheckService> logger)
+        ILogger<HealthCheckService> logger,
+        IHostApplicationLifetime lifetime)
     {
         _httpClient = httpClient;
         _discord = discord;
         _settings = settings.Value;
         _logger = logger;
+        _lifetime = lifetime;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        if (!await WaitForApplicationStartedAsync(stoppingToken))
+            return;
+
         _logger.LogInformation(
             "Health check started - polling {Count} endpoints every {Interval}m",
             _settings.HealthEndpoints.Length,
@@ -36,6 +42,23 @@ public class HealthCheckService : BackgroundService
             await Task.WhenAll(_settings.HealthEndpoints.Select(endpoint => CheckEndpointAsync(endpoint, stoppingToken)));
         }
         while (await timer.WaitForNextTickAsync(stoppingToken));
+    }
+
+    private async Task<bool> WaitForApplicationStartedAsync(CancellationToken stoppingToken)
+    {
+        TaskCompletionSource started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using CancellationTokenRegistration startedRegistration = _lifetime.ApplicationStarted.Register(() => started.TrySetResult());
+        using CancellationTokenRegistration stoppingRegistration = stoppingToken.Register(() => started.TrySetCanceled(stoppingToken));
+
+        try
+        {
+            await started.Task;
+            return true;
+        }
+        catch (OperationCanceledException)
+        {
+            return false;
+        }
     }
 
     private async Task CheckEndpointAsync(string endpoint, CancellationToken stoppingToken)
